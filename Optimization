@@ -1,0 +1,187 @@
+import pandas as pd
+import numpy as np
+import tensorflow as tf
+from tensorflow import keras
+from keras import initializers
+from keras.layers import Dense
+from keras.models import Sequential
+%matplotlib inline
+import matplotlib.pyplot as plt
+import sys
+import json
+
+fcc_elements = ["Ag", "Al", "Au", "Cu", "Ir", "Ni", "Pb", "Pd", "Pt", "Rh", "Th", "Yb"]
+bcc_elements = ["Ba", "Cr", "Cs", "Eu", "Fe", "Li", "Mn", "Mo", "Na", "Nb", "Rb", "Ta", "V", "W" ]
+hcp_elements = ["Be", "Ca", "Cd", "Co", "Dy", "Er", "Gd", "Hf", "Ho", "Lu", "Mg", "Re", 
+                "Ru", "Sc", "Tb", "Ti", "Tl", "Tm", "Y", "Zn", "Zr"]
+others = ["Si", "Ge"] # "Si" and "Ge" are Face-centered diamond-cubic;
+
+elements = fcc_elements + others + bcc_elements + hcp_elements
+
+querable_mendeleev = ["atomic_number", "atomic_volume", "boiling_point", "en_ghosh",  "evaporation_heat", "heat_of_formation",
+                     "lattice_constant", "melting_point", "specific_heat"]
+querable_pymatgen = ["atomic_mass", "atomic_radius", "electrical_resistivity","molar_volume", "bulk_modulus", "youngs_modulus",
+                     "average_ionic_radius", "density_of_solid", "coefficient_of_linear_thermal_expansion"]
+querable_values = querable_mendeleev + querable_pymatgen
+
+# Get the data
+
+with open("all_values.csv", "r") as f:
+    all_values = json.load(f)
+
+# Pandas Dataframe
+df = pd.DataFrame(all_values, columns=querable_values)
+
+# We will patch some of the values that are not available in the datasets.
+
+# Value for the CTE of Cesium
+index_Cs = df.index[df['atomic_number'] == 55]
+df.iloc[index_Cs, df.columns.get_loc("coefficient_of_linear_thermal_expansion")] = 0.000097 
+# Value from: David R. Lide (ed), CRC Handbook of Chemistry and Physics, 84th Edition. CRC Press. Boca Raton, Florida, 2003
+
+# Value for the CTE of Rubidium
+index_Rb = df.index[df['atomic_number'] == 37]
+df.iloc[index_Rb, df.columns.get_loc("coefficient_of_linear_thermal_expansion")] = 0.000090 
+# Value from: https://www.azom.com/article.aspx?ArticleID=1834
+
+# Value for the Evaporation Heat of Ruthenium
+index_Ru = df.index[df['atomic_number'] == 44]
+df.iloc[index_Ru, df.columns.get_loc("evaporation_heat")] = 595 # kJ/mol 
+# Value from: https://www.webelements.com/ruthenium/thermochemistry.html
+
+# Value for the Bulk Modulus of Zirconium
+index_Zr = df.index[df['atomic_number'] == 40]
+df.iloc[index_Zr, df.columns.get_loc("bulk_modulus")] = 94 # GPa 
+# Value from: https://materialsproject.org/materials/mp-131/
+
+# Value for the Bulk Modulus of Germanium
+index_Ge = df.index[df['atomic_number'] == 32]
+df.iloc[index_Ge, df.columns.get_loc("bulk_modulus")] = 77.2 # GPa 
+# Value from: https://www.crystran.co.uk/optical-materials/germanium-ge
+
+# Value for the Young's Modulus of Germanium
+index_Ge = df.index[df['atomic_number'] == 32]
+df.iloc[index_Ge, df.columns.get_loc("youngs_modulus")] = 102.7 # GPa 
+# Value from: https://www.crystran.co.uk/optical-materials/germanium-ge
+
+# Now, we're going to create our giant loop
+
+all_labels = df['youngs_modulus'].tolist()
+
+# How many combinations you want to run - 1
+the_end = len(combs)
+
+# Create an empty list to add the mean absolute error values to
+my_values = [None] * the_end
+
+# initialize variable
+i = 0
+
+# Create a file to write data to in case of crashes
+op_file = open("optimization_data.csv", "w")
+
+while i < the_end:
+    to_remove = list(combs[i])
+    # Add Young's Modulus to be removed
+    to_remove.append('youngs_modulus')
+
+    # A list of alternating combinations removed and mae values
+
+    my_values[i] = list(combs[i])
+
+    sf = df
+    # Drop the specified values
+    sf = df.drop(to_remove, axis=1)
+
+    sf.head(n=10) # With this line you can see the first ten entries of our database
+
+
+    all_values = [list(sf.iloc[x]) for x in range(len(all_values))]
+
+    # SETS
+
+    # List of lists are turned into Numpy arrays to facilitate calculations in steps to follow (Normalization).
+    all_values = np.array(all_values, dtype = float) 
+    #print("Shape of Values:", all_values.shape)
+    all_labels = np.array(all_labels, dtype = float)
+    #print("Shape of Labels:", all_labels.shape)
+
+    # Uncomment the line below to shuffle the dataset (we do not do this here to ensure consistent results for every run)
+    #order = np.argsort(np.random.random(all_labels.shape)) # This numpy argsort returns the indexes that would be used to shuffle a list
+    order = np.arange(49)
+    all_values = all_values[order]
+    all_labels = all_labels[order]
+
+    # Training Set
+    train_labels = all_labels[:44]
+    train_values = all_values[:44]
+
+    # Testing Set
+    test_labels = all_labels[-5:]
+    test_values = all_values[-5:]
+
+    # NORMALIZATION
+
+    mean = np.mean(train_values, axis = 0) # mean
+    std = np.std(train_values, axis = 0) # standard deviation
+
+    train_values = (train_values - mean) / std # input scaling
+    test_values = (test_values - mean) / std # input scaling
+
+    # print(train_values[0]) # print a sample entry from the training set
+    #print(order)
+    # DEFINITION OF THE MODEL
+
+    # The weights of our neural network will be initialized in a random manner, using a seed allows for reproducibility
+    kernel_init = initializers.RandomNormal(seed=0)
+
+
+    model = Sequential()
+    model.add(Dense(32, activation='relu', input_shape=(train_values.shape[1], ), kernel_initializer=kernel_init))
+    model.add(Dense(64, activation='relu', kernel_initializer=kernel_init))
+    model.add(Dense(1, kernel_initializer=kernel_init))
+
+    # DEFINITION OF THE OPTIMIZER
+
+    optimizer = tf.train.RMSPropOptimizer(0.002) # Root Mean Squared Propagation
+
+    # This line matches the optimizer to the model and states which metrics will evaluate the model's accuracy
+    model.compile(loss='mse', optimizer=optimizer, metrics=['mae'])
+    #model.summary()
+
+    class PrintEpNum(keras.callbacks.Callback): # This is a function for the Epoch Counter
+        def on_epoch_end(self, epoch, logs):
+            sys.stdout.flush()
+            sys.stdout.write("Current Epoch: " + str(epoch+1) + '\r') # Updates current Epoch Number
+
+    EPOCHS = 2000 # Number of EPOCHS
+
+    # HISTORY Object which contains how the model learned
+
+    # Training Values (Properties), Training Labels (Known Young's Moduli) 
+    history = model.fit(train_values, train_labels, batch_size=train_values.shape[0], 
+                epochs=EPOCHS, verbose = False, validation_split=0.1, callbacks=[PrintEpNum()])
+
+
+    [loss_train, mae_train] = model.evaluate(train_values, train_labels, verbose=0)
+    [loss_test, mae_test] = model.evaluate(test_values, test_labels, verbose=0)
+
+    my_values[i].append(round(mae_train, 3))
+    my_values[i].append(round(mae_test, 3))
+    
+    # Display the current iteration
+    print("The current iteration is \n" ,i)
+
+
+    # write to a file
+    op_file.write(" ".join(str(x) for x in my_values[i]))
+    op_file.write("\n")
+    
+    # Display the same information being written to the file
+    print(" ".join(str(x) for x in my_values[i]))
+
+    # index
+    i = i + 1
+
+# Close the file    
+op_file.close()
