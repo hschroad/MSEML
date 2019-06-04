@@ -1,0 +1,205 @@
+import pandas as pd
+import numpy as np
+import tensorflow as tf
+from tensorflow import keras
+from keras import initializers
+from keras.layers import Dense
+from keras.models import Sequential
+%matplotlib inline
+import matplotlib.pyplot as plt
+import sys
+import json
+
+fcc_elements = ["Ag", "Al", "Au", "Cu", "Ir", "Ni", "Pb", "Pd", "Pt", "Rh", "Th", "Yb"]
+bcc_elements = ["Ba", "Cr", "Cs", "Eu", "Fe", "Li", "Mn", "Mo", "Na", "Nb", "Rb", "Ta", "V", "W" ]
+hcp_elements = ["Be", "Ca", "Cd", "Co", "Dy", "Er", "Gd", "Hf", "Ho", "Lu", "Mg", "Re", 
+                "Ru", "Sc", "Tb", "Ti", "Tl", "Tm", "Y", "Zn", "Zr"]
+others = ["Si", "Ge"] # "Si" and "Ge" are Face-centered diamond-cubic;
+
+elements = fcc_elements + others + bcc_elements + hcp_elements
+
+querable_mendeleev = ["atomic_number", "atomic_volume", "boiling_point", "en_ghosh",  "evaporation_heat", "heat_of_formation",
+                     "lattice_constant", "melting_point", "specific_heat"]
+querable_pymatgen = ["atomic_mass", "atomic_radius", "electrical_resistivity","molar_volume", "bulk_modulus", "youngs_modulus",
+                     "average_ionic_radius", "density_of_solid", "coefficient_of_linear_thermal_expansion"]
+querable_values = querable_mendeleev + querable_pymatgen
+
+# Get the data
+
+with open("all_values.csv", "r") as f:
+    all_values = json.load(f)
+
+# Pandas Dataframe
+df = pd.DataFrame(all_values, columns=querable_values)
+
+# We will patch some of the values that are not available in the datasets.
+
+# Value for the CTE of Cesium
+index_Cs = df.index[df['atomic_number'] == 55]
+df.iloc[index_Cs, df.columns.get_loc("coefficient_of_linear_thermal_expansion")] = 0.000097 
+# Value from: David R. Lide (ed), CRC Handbook of Chemistry and Physics, 84th Edition. CRC Press. Boca Raton, Florida, 2003
+
+# Value for the CTE of Rubidium
+index_Rb = df.index[df['atomic_number'] == 37]
+df.iloc[index_Rb, df.columns.get_loc("coefficient_of_linear_thermal_expansion")] = 0.000090 
+# Value from: https://www.azom.com/article.aspx?ArticleID=1834
+
+# Value for the Evaporation Heat of Ruthenium
+index_Ru = df.index[df['atomic_number'] == 44]
+df.iloc[index_Ru, df.columns.get_loc("evaporation_heat")] = 595 # kJ/mol 
+# Value from: https://www.webelements.com/ruthenium/thermochemistry.html
+
+# Value for the Bulk Modulus of Zirconium
+index_Zr = df.index[df['atomic_number'] == 40]
+df.iloc[index_Zr, df.columns.get_loc("bulk_modulus")] = 94 # GPa 
+# Value from: https://materialsproject.org/materials/mp-131/
+
+# Value for the Bulk Modulus of Germanium
+index_Ge = df.index[df['atomic_number'] == 32]
+df.iloc[index_Ge, df.columns.get_loc("bulk_modulus")] = 77.2 # GPa 
+# Value from: https://www.crystran.co.uk/optical-materials/germanium-ge
+
+# Value for the Young's Modulus of Germanium
+index_Ge = df.index[df['atomic_number'] == 32]
+df.iloc[index_Ge, df.columns.get_loc("youngs_modulus")] = 102.7 # GPa 
+# Value from: https://www.crystran.co.uk/optical-materials/germanium-ge
+
+# First, we'll create the heatmap again
+all_labels = df['youngs_modulus'].tolist()
+
+# make a list of all the inputs
+all_inputs = df.values.tolist()
+
+# Make a list of the young's modulus column so that we can append it to the end
+youngs_modulus = list(df['youngs_modulus'])
+
+# Drop young's modulus column
+df = df.drop('youngs_modulus', axis = 1)
+
+# Create a new young's modulus column, this time at the end
+df["youngs_modulus"] = youngs_modulus
+
+# create a list of all the labels
+labels = df.columns.tolist()
+
+# Check that it's at the end
+df.head()
+
+# Create an 18x18 data frame that displays all the correlation coefficients between the inputs
+pcorr = df.corr(method = 'pearson')
+
+# All values will be between -1 (a negative line implying a 1:1 relationship) and +1 (positive line with 1:1 relationship)
+# The center diagonal will have all +1 correlations since every variable is correlated with itself
+# The closer the absolute value is to 1, the more correlated the variables are
+
+# This creates a numpy array of the values, which we'll use to make the heatmap
+p = pcorr.values
+
+# The data looks like this
+pcorr.head()
+
+# Now, we're going to make the heatmap
+fig, ax = plt.subplots(figsize = [11,11])
+im = ax.imshow(p)
+
+# We want to show all ticks...
+ax.set_xticks(np.arange(len(labels)))
+ax.set_yticks(np.arange(len(labels)))
+# ... and label them with the respective list entries
+ax.set_xticklabels(labels)
+ax.set_yticklabels(labels)
+
+# Rotate the tick labels and set their alignment.
+plt.setp(ax.get_xticklabels(), rotation=45, ha="right",
+         rotation_mode="anchor")
+
+# Loop over data dimensions and create text annotations.
+for y in range(p.shape[0]):
+    for x in range(p.shape[1]):
+        plt.text(x, y, '%.2f' % p[y, x],
+                 horizontalalignment='center',
+                 verticalalignment='center',
+                 color = "w",
+                fontsize = 9)
+
+ax.set_title("Pearson Correlation Coefficients")
+cbar = plt.colorbar(im, shrink = 0.5)
+fig.tight_layout()
+plt.show()
+
+coeffs = [abs(x) for x in p]
+#print(coeffs)
+coeffs = pd.DataFrame(coeffs, columns = labels, index = labels)
+coeffs.sort_values(by = labels, axis = 0)
+#print(labels)
+coeffs.head()
+
+# Alright, now we're going to drop one value from pairs that we know are correlated
+
+# This will create an 18x18 data frame of T/F values indicating whether the index is >= 0.65
+ge = coeffs.ge(0.65, axis = 0)
+
+# Create an empty list for "highly correlated" values
+hc = []
+
+# Create a loop to add the highly correlated values to our list
+for i in range(0, 18):
+    for j in range(0, 18):
+        if i != j:         # We know that each variable is correlated with itself
+            if ge.iloc[i,j] == True:
+                hc.append([coeffs.index[i], coeffs.columns[j]])
+
+# Now, we have a list of lists consisting of highly correlated variables
+# Uncomment this below if you want to see it
+# print(hc)
+
+# Let's make a dataframe of this
+hc_labels = ["variable_1", "variable_2"]
+hcdf = pd.DataFrame(hc, columns = hc_labels)
+hcdf.head(-1)
+
+# Looking at the dataframe, we can see that there are repeats, but that's good
+# We don't have to search for repeats
+# We can also see that there are only 14 unique variables to be dropped (not including young's modulus)
+
+# Remove youngs_modulus from the dataframe
+hcdf = hcdf[hcdf.variable_1 != "youngs_modulus"]
+hcdf = hcdf[hcdf.variable_2 != "youngs_modulus"]
+
+# create a list of the variables to be removed
+to_remove = list()
+
+# create a list of the unique variables contained in the first column
+uniq_vars = hcdf['variable_1'].unique()
+
+# Now, we will create a list of all each variable along with its correlated variables
+# This will be a list of lists, and we will drop a whole list each time
+# Since they are all associated, there should be no significiant loss in the mae when the associated variables are dropped
+for i in uniq_vars:
+    this_list = list(hcdf.loc[hcdf['variable_1'] == i]['variable_2'])
+    this_list.insert(0, i)
+    to_remove.append(this_list)
+        
+# To see the list of lists, uncomment the line below     
+print(to_remove)
+'''
+# this will add everything in a single list (no list of lists)
+for i in uniq_vars:
+    to_remove.append(i)
+    this_list = list(hcdf.loc[hcdf['variable_1'] == i]['variable_2'])
+    for x in this_list:
+        to_remove.append(x)
+'''
+# How long the loop will be
+the_end = len(to_remove)
+
+# Create an empty list to which we'll add our final values
+# This should be an alternating list consisting of the variable(s) dropped and the mae value
+my_values = []
+
+# Open a file where will write our output to
+v_file = open("var_data.csv", "w")
+
+# Counting variable
+i = 0
+
