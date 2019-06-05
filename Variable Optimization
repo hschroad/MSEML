@@ -203,3 +203,206 @@ v_file = open("var_data.csv", "w")
 # Counting variable
 i = 0
 
+while i < the_end:
+    # open file
+    v_file = open("var_data.csv", "a")
+   
+    # Reassign the dataframe
+    sf = df
+    
+    # Drop youngs modulus
+    sf = df.drop('youngs_modulus', axis = 1)
+    
+    # Now, drop the specified values
+    for j in range(1, len(to_remove[i])):
+        sf = sf.drop(to_remove[i][j], axis = 1)
+
+
+    all_values = [list(sf.iloc[x]) for x in range(len(all_values))]
+
+    # SETS
+
+    # List of lists are turned into Numpy arrays to facilitate calculations in steps to follow (Normalization).
+    all_values = np.array(all_values, dtype = float) 
+    #print("Shape of Values:", all_values.shape)
+    all_labels = np.array(all_labels, dtype = float)
+    #print("Shape of Labels:", all_labels.shape)
+
+    # Uncomment the line below to shuffle the dataset (we do not do this here to ensure consistent results for every run)
+    # order = np.argsort(np.random.random(all_labels.shape)) # This numpy argsort returns the indexes that would be used to shuffle a list
+    order = np.arange(49)
+    all_values = all_values[order]
+    all_labels = all_labels[order]
+
+    # Training Set
+    train_labels = all_labels[:44]
+    train_values = all_values[:44]
+
+    # Testing Set
+    test_labels = all_labels[-5:]
+    test_values = all_values[-5:]
+
+    # NORMALIZATION
+    mean = np.mean(train_values, axis = 0) # mean
+    std = np.std(train_values, axis = 0) # standard deviation
+
+    train_values = (train_values - mean) / std # input scaling
+    test_values = (test_values - mean) / std # input scaling
+
+    # DEFINITION OF THE MODEL
+
+    # The weights of our neural network will be initialized in a random manner, using a seed allows for reproducibility
+    kernel_init = initializers.RandomNormal(seed=0)
+
+    model = Sequential()
+    model.add(Dense(32, activation='relu', input_shape=(train_values.shape[1], ), kernel_initializer=kernel_init))
+    model.add(Dense(64, activation='relu', kernel_initializer=kernel_init))
+    model.add(Dense(1, kernel_initializer=kernel_init))
+
+    # DEFINITION OF THE OPTIMIZER
+
+    optimizer = tf.train.RMSPropOptimizer(0.002) # Root Mean Squared Propagation
+
+    # This line matches the optimizer to the model and states which metrics will evaluate the model's accuracy
+    model.compile(loss='mse', optimizer=optimizer, metrics=['mae'])
+    # model.summary()
+
+    class PrintEpNum(keras.callbacks.Callback): # This is a function for the Epoch Counter
+        def on_epoch_end(self, epoch, logs):
+            sys.stdout.flush()
+            sys.stdout.write("Current Epoch: " + str(epoch+1) + '\r') # Updates current Epoch Number
+
+    
+    mae_es= keras.callbacks.EarlyStopping(monitor='mean_absolute_error', patience=10, verbose=1, mode='auto', restore_best_weights=True)    
+    EPOCHS = 10000 # Number of EPOCHS
+
+    # HISTORY Object which contains how the model learned
+    # Training Values (Properties), Training Labels (Known Young's Moduli)
+    history = model.fit(train_values, train_labels, batch_size = train_values.shape[0], 
+                        epochs = EPOCHS, verbose = False, validation_split=0.1, callbacks=[mae_es, PrintEpNum()]) 
+
+
+    [loss_train, mae_train] = model.evaluate(train_values, train_labels, verbose=0)
+    [loss_test, mae_test] = model.evaluate(test_values, test_labels, verbose=0)
+
+    # Here is where we append the dropped variable, mae test, and train values
+    my_values.append([to_remove[i],round(mae_train, 3), round(mae_test, 3)])
+    
+    # Display the current iteration
+    print("The current iteration is \n" ,i)
+
+    # write to a file
+    v_file.write(" ".join(str(x) for x in my_values[i]))
+    v_file.write("\n")
+    
+    # Display the same information being written to the file
+    print(" ".join(str(x) for x in my_values[i]))
+
+    # counting variable
+    i = i + 1
+    
+    # Close the file    
+    v_file.close()
+    
+  # Now, we're going to see what the value would be without dropping any variables (besides young's modulus
+
+# Reassign the dataframe
+sf = df
+    
+# Drop young's modulus
+sf = sf.drop('youngs_modulus', axis = 1)
+
+all_values = [list(sf.iloc[x]) for x in range(len(all_values))]
+
+# SETS
+
+# List of lists are turned into Numpy arrays to facilitate calculations in steps to follow (Normalization).
+all_values = np.array(all_values, dtype = float) 
+#print("Shape of Values:", all_values.shape)
+all_labels = np.array(all_labels, dtype = float)
+#print("Shape of Labels:", all_labels.shape)
+
+# Uncomment the line below to shuffle the dataset (we do not do this here to ensure consistent results for every run)
+# order = np.argsort(np.random.random(all_labels.shape)) # This numpy argsort returns the indexes that would be used to shuffle a list
+order = np.arange(49)
+all_values = all_values[order]
+all_labels = all_labels[order]
+
+# Training Set
+train_labels = all_labels[:44]
+train_values = all_values[:44]
+
+# Testing Set
+test_labels = all_labels[-5:]
+test_values = all_values[-5:]
+
+# NORMALIZATION
+mean = np.mean(train_values, axis = 0) # mean
+std = np.std(train_values, axis = 0) # standard deviation
+
+train_values = (train_values - mean) / std # input scaling
+test_values = (test_values - mean) / std # input scaling
+
+# DEFINITION OF THE MODEL
+
+# The weights of our neural network will be initialized in a random manner, using a seed allows for reproducibility
+kernel_init = initializers.RandomNormal(seed=0)
+
+model = Sequential()
+model.add(Dense(32, activation='relu', input_shape=(train_values.shape[1], ), kernel_initializer=kernel_init))
+model.add(Dense(64, activation='relu', kernel_initializer=kernel_init))
+model.add(Dense(1, kernel_initializer=kernel_init))
+
+# DEFINITION OF THE OPTIMIZER
+
+optimizer = tf.train.RMSPropOptimizer(0.002) # Root Mean Squared Propagation
+
+# This line matches the optimizer to the model and states which metrics will evaluate the model's accuracy
+model.compile(loss='mse', optimizer=optimizer, metrics=['mae'])
+# model.summary()
+
+class PrintEpNum(keras.callbacks.Callback): # This is a function for the Epoch Counter
+    def on_epoch_end(self, epoch, logs):
+        sys.stdout.flush()
+        sys.stdout.write("Current Epoch: " + str(epoch+1) + '\r') # Updates current Epoch Number
+
+mae_es= keras.callbacks.EarlyStopping(monitor='mean_absolute_error', patience=10, verbose=1, mode='auto', restore_best_weights=True)    
+EPOCHS = 10000 # Number of EPOCHS
+
+# HISTORY Object which contains how the model learned
+
+# Training Values (Properties), Training Labels (Known Young's Moduli) 
+history = model.fit(train_values, train_labels, batch_size = train_values.shape[0], 
+                        epochs = EPOCHS, verbose = False, validation_split=0.1, callbacks=[mae_es, PrintEpNum()]) 
+
+[loss_train, mae_train] = model.evaluate(train_values, train_labels, verbose=0)
+[loss_test, mae_test] = model.evaluate(test_values, test_labels, verbose=0)
+
+# Here is where we append the dropped variable, mae test, and train values
+none_removed = ["none", mae_train, mae_test]
+
+# Now, I want to create separate lists for the variable kept and the variables dropped
+vars_kept = list()
+vars_dropped = list()
+
+for i in range(0, len(my_values)):
+    vars_kept.append(my_values[i][0][0])
+    vars_dropped.append(my_values[i][0][1:])
+
+# counting variable
+i = 0
+
+# new list
+everything = list()
+# while loop to make this all one list
+while i < len(vars_kept):
+    everything.append([vars_kept[i], vars_dropped[i], my_values[i][1], my_values[i][2]])
+    i = i + 1
+# print(everything)
+
+# Finally, we should create a dataframe for these values
+labels = ['variable', 'variables_dropped','mae_train_value', 'mae_test_value']
+
+new_df = pd.DataFrame(everything , columns = labels)
+new_df = new_df.sort_values(by = 'mae_test_value')
+new_df.head(-1)
